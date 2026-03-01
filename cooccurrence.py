@@ -2,6 +2,15 @@ import argparse
 import csv
 import sys
 
+class Post:
+    def __init__(self, user, text, counts):
+        self.user = user
+        self.text = text
+        self.counts = counts
+
+    def __str__(self):
+        return f"User {self.user}, text: {self.text}, counts: {self.counts}"
+
 def parse_tsv(filename):
     data = []
     # Open the file and specify the tab delimiter
@@ -44,6 +53,25 @@ def get_posts(post_fname):
     
     return posts
 
+def count_post(post, anchors):
+    user = post[0]
+    text = post[1]
+    counts = [0] * len(anchors)
+    #for each anchor, count how often it appears in the text
+    for anchor, anchor_idx in anchors.items():
+        text_list = text.split()
+        count = text_list.count(anchor)
+        counts[anchor_idx] = count
+    return Post(user, text, counts)
+
+
+def count_posts(posts, anchors):
+    rtn = []
+    for post in posts:
+        rtn.append(count_post(post, anchors))
+
+    return rtn
+
 def main():
     parser = argparse.ArgumentParser(description='small script to create co-occurence matrices per user given proper datasets')
     parser.add_argument('anchor', type=str, help='The file name the anchor words')
@@ -54,10 +82,21 @@ def main():
 
     #key anchor word, value index
     anchor_words = get_anchor_words(args.anchor)
+    # reverse_anchor_words = [""] * len(anchor_words)
+    # for anchor, anchor_idx in anchor_words.items():
+    #     reverse_anchor_words[anchor_idx] = anchor
 
     #key user hash, value post text
-    posts = get_posts(args.posts)
-    print(posts[2:5])
+    uncounted_posts = get_posts(args.posts)
+
+    #returns list of Post objects
+    counted_posts = count_posts(uncounted_posts, anchor_words)
+    # print(counted_posts[10])
+    # for i, count in enumerate(counted_posts[10].counts):
+    #     if(count > 0):
+    #         print(reverse_anchor_words[i])
+
+
 
 
 
