@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.log
+social post data sets
+social post data sets-20260301T213525Z-1-001.zip
+venv
