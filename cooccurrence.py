@@ -86,6 +86,19 @@ def counts_to_matrices(posts):
         matrices.append((post.user, matrix))
     return matrices
 
+def group_post_matrices(post_matrices):
+    user_matrices = {}
+    for post_tuple in post_matrices:
+        user_hash = post_tuple[0]
+        post_matrix = post_tuple[1]
+        #get or create matrix m based on user hash
+        user_matrix = user_matrices.get(user_hash, np.zeros(post_matrix.shape))
+        #add post matrix to m
+        user_matrix += post_matrix
+        #assign user_matrices[user_matrix] = post_matrix + m
+        user_matrices[user_hash] = user_matrix
+    return user_matrices
+
 
 def main():
     parser = argparse.ArgumentParser(description='small script to create co-occurence matrices per user given proper datasets')
@@ -111,6 +124,7 @@ def main():
     #     if(count > 0):
     #         print(reverse_anchor_words[i])
 
+    #each item in this list is (user hash, co-occurrence matrix for the post)
     post_matrices = counts_to_matrices(counted_posts)
     # print(post_matrices[0])
     # nonzero_indices = np.nonzero(post_matrices[0][1])
@@ -119,6 +133,17 @@ def main():
     # print(counted_posts[0].text)
     # for r, c in zip(row_indices, col_indices):
     #     print(f"{reverse_anchor_words[r]}, {reverse_anchor_words[c]}")
+
+    #hashmap where key= user hash, value = post matrix
+    user_matrices = group_post_matrices(post_matrices)
+    # key = "da0a4d57dd0fc1e5c5ab97dc0d0ef7b079c8fcbf64d40495e1a0c5e227119476"
+    # test_matrix = user_matrices.get(key)
+    # nonzero_indices = np.nonzero(test_matrix)
+    # row_indices = nonzero_indices[0]
+    # col_indices = nonzero_indices[1]
+    # for r, c in zip(row_indices, col_indices):
+    #     print(f"{reverse_anchor_words[r]}, {reverse_anchor_words[c]}")
+
 
 
 
