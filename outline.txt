@@ -10,6 +10,7 @@
     #count occurences of anchor words in a post in the list
     #create per post co-occurence matrix
         #iterate through counts in nested loop
+        #multiply counts together for the cell in the matrix
 
 #create hashmap from user hash to matrix
 
@@ -19,3 +20,7 @@
 
 #for each user
     #write matrix to output file 
+
+
+#Improvements/TODO
+    #performance could certainly be better. this is something like O((# anchors)^2(#posts))

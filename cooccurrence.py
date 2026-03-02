@@ -1,6 +1,8 @@
 import argparse
 import csv
 import sys
+import numpy as np
+
 
 class Post:
     def __init__(self, user, text, counts):
@@ -72,6 +74,19 @@ def count_posts(posts, anchors):
 
     return rtn
 
+def counts_to_matrices(posts):
+    #list of tuples (user id, l x l matrices where l = len(anchors))
+    matrices = []
+    for post in posts:
+        num_anchors = len(post.counts)
+        matrix = np.zeros((num_anchors, num_anchors))
+        for i in range(num_anchors):
+            for j in range(num_anchors):
+                matrix[i, j] = post.counts[i] * post.counts[j]
+        matrices.append((post.user, matrix))
+    return matrices
+
+
 def main():
     parser = argparse.ArgumentParser(description='small script to create co-occurence matrices per user given proper datasets')
     parser.add_argument('anchor', type=str, help='The file name the anchor words')
@@ -95,6 +110,15 @@ def main():
     # for i, count in enumerate(counted_posts[10].counts):
     #     if(count > 0):
     #         print(reverse_anchor_words[i])
+
+    post_matrices = counts_to_matrices(counted_posts)
+    # print(post_matrices[0])
+    # nonzero_indices = np.nonzero(post_matrices[0][1])
+    # row_indices = nonzero_indices[0]
+    # col_indices = nonzero_indices[1]
+    # print(counted_posts[0].text)
+    # for r, c in zip(row_indices, col_indices):
+    #     print(f"{reverse_anchor_words[r]}, {reverse_anchor_words[c]}")
 
 
 
