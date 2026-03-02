@@ -83,6 +83,9 @@ def counts_to_matrices(posts):
         matrix = np.zeros((num_anchors, num_anchors))
         for i in range(num_anchors):
             for j in range(num_anchors):
+                if(i == j):
+                    #no point in crossing a word with itself here
+                    continue
                 matrix[i, j] = post.counts[i] * post.counts[j]
         matrices.append((post.user, matrix))
     return matrices
