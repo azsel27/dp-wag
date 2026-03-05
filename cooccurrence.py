@@ -148,8 +148,13 @@ def sum_user_matrices(matrices):
         complete_matrix += m
     return complete_matrix
 
-def add_noise(matrix):
-    return 0
+def add_noise(matrix, scale):
+    #loc = 0, scale = scale, size = matrix.shape
+    rng = np.random.default_rng()
+    noise = rng.laplace(loc = 0.0, scale = scale, size = matrix.shape)
+    new_matrix = matrix + noise
+    return new_matrix
+
 
 
 def main():
@@ -167,6 +172,7 @@ def main():
         
         with open(args.in_matrix, 'rb') as f:
             user_matrices = pickle.load(f)
+        print("Loaded user matrices from file")
         # print(len(user_matrices.keys()))
 
         # reverse_anchor_words = [""] * len(anchor_words)
@@ -243,8 +249,9 @@ def main():
     complete_matrix = sum_user_matrices(user_matrices)
     print("Combined user matrices")
 
-    # noisy_matrix = add_noise(complete_matrix)
-    # print("Added noise to combined matrix")
+    #for now, sensitivity = 10, epsilon = 5, so scale = 2
+    noisy_matrix = add_noise(complete_matrix,2)
+    print("Added noise to combined matrix")
     # print(noisy_matrix)
 
     
