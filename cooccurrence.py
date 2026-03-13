@@ -40,6 +40,25 @@ def get_anchor_words(anchor_fname):
     
     return anchor_words
 
+#if we don't care about the indices in the anchor words file
+def get_anchor_words_index_ignored(anchor_fname):
+    try:
+        parsed_data = parse_tsv(anchor_fname)
+    except FileNotFoundError:
+        print(f"The file '{anchor_fname}' was not found.")
+        sys.exit()
+    
+    #maps word key to word_index value
+    anchor_words = {}
+    index = 0
+    #skip first row because it is labels
+    for row in parsed_data[1:]:
+        word = row[2]
+        anchor_words[word] = index
+        index += 1
+    
+    return anchor_words
+
 
 def get_posts(post_fname):
     try:
@@ -186,23 +205,23 @@ def main():
     parser.add_argument('--out_matrix', type=str, help="The name of the output file of user matrices")
     parser.add_argument('--in_matrix', type=str, help="Filename of serialized user matrices, to avoid recalculation")
     parser.add_argument('--out', type=str, help="The name of the output file of the top k edges and their values")
-    
+    parser.add_argument('--ignore_indices', action="store_true", help="This flag will make the program ignore the indices in the anchor words file")
+
     args = parser.parse_args()
+    #key anchor word, value index
+    if args.ignore_indices:
+        anchor_words = get_anchor_words_index_ignored(args.anchor)
+    else:
+        anchor_words = get_anchor_words(args.anchor)
+    print("Got anchor words")
 
     if args.in_matrix:
-        anchor_words = get_anchor_words(args.anchor)
-        print("Got anchor words")
         
         with open(args.in_matrix, 'rb') as f:
             user_matrices = pickle.load(f)
         print("Loaded user matrices from file")
 
     else:
-
-        #key anchor word, value index
-        anchor_words = get_anchor_words(args.anchor)
-        print("Got anchor words")
-
         #key user hash, value post text
         uncounted_posts = get_posts(args.posts)
         print("Got post data")
