@@ -318,20 +318,26 @@ def communities_from_noisy_matrix_networkx(m, threshold = 0.0):
     # partition_generator = nx.community.girvan_newman(g, most_valuable_edge=most_central_edge)
 
     best_partition = None
-    #TODO for now, modularity. should try performance and coverage
     best_quality = float("-inf")
 
     limit = n
     for i, partition in enumerate(partition_generator):
         communities = [list(c) for c in partition]
-        # q_performance, q_coverage = partition_quality(g, communities) #returns a 2-tuple
-        q = nx.algorithms.community.modularity(g, communities, weight = "weight")
-        if q > best_quality:
-            best_quality = q
-            best_partition = communities
-        # if q_performance > best_quality:
-        #     best_quality = q_performance
+        #coverage: fraction of edge weight w/in partitions vs between them
+        #performance: fraction of connected pairs w/in parts AND unconnected pairs in diff parts
+        #modularity: measure between [-1, 1] expressing how many edges btwn nodes in same partition
+       
+        #modularity approach
+        # q = nx.algorithms.community.modularity(g, communities, weight = "weight")
+        # if q > best_quality:
+        #     best_quality = q
         #     best_partition = communities
+
+        #performance approach, slightly preferred
+        q_coverage, q_performance  = nx.algorithms.community.partition_quality(g, communities) #returns a 2-tuple
+        if q_performance > best_quality:
+            best_quality = q_performance
+            best_partition = communities
         if len(communities) >= limit:
             break
 
