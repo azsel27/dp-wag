@@ -8,14 +8,19 @@ This script is intended to be a proof-of-concept for differentially private
 word association graph generation and community detection. This script 
 was developed iteratively and needs work to make it more organized, readable, and usable.
 
-There are two modes of co-occurrence used to generate these matrices: full-post and adjacency. Full-post counts co-occurrence when any two anchor words appear in the same post at all. Adjacency requires them to be next to one another. 
+## Config
 
+The config.ini file controls the internal variables for the script to run. Input and output files can be whatever you'd like, as long as the inputs conform to the output from the [wordchipper] (https://chattersum.com/wordchipper/). The dataset_times variable takes the form of a json dictionary whose keys are communities and whose values are a timeframe string.
+
+The shared_partition_fname variable appends community data to a file intended to be shared across runs, for ease of comparitive analysis. This was not intended as a long-term solution. 
+
+The threshold variable in the partition section is the minimum edge weight to be considering in partition detection.
+
+The cooccurrence_window variable in the statistics section determines how close anchor words must be in order to be counted. Setting this to -1 will make the full post the co-occurrence window. 
 
 ## Usage
-### Example: run on reddit data with partitions ignoring edges under 20.0, with adjacency flow. Ignore indices flag recommended for now. Requires both a list of anchor words and posts
-```
-python dp-wag.py anchor_words_reddit_privacy_week_20260223.txt reddit_privacy_week_20260223_tweet_texts.hashed.txt --out reddit_topk.csv --out_partition reddit_partitions.csv --partition_threshold 20.0 --adjacency --ignore_indices
-```
+First, set any appropriate variables in the config.ini file. Then,
 
-## Examples
-Examples directory contains sample outputs from the script on the reddit dataset with a threshold of 20.0, using adjacency co-occurrence.
+```
+python dp-wag.py
+```

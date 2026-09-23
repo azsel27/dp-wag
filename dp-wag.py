@@ -22,15 +22,6 @@ from nltk.corpus import stopwords
 # This script is intended to be a proof-of-concept for differentially private
 # word association graph generation and community detection. 
 
-class Post:
-    def __init__(self, user, text, counts):
-        self.user = user
-        self.text = text
-        self.counts = counts
-
-    def __str__(self):
-        return f"User {self.user}, text: {self.text}, counts: {self.counts}"
-
 def parse_tsv(filename):
     data = []
     # Open the file and specify the tab delimiter
@@ -403,6 +394,8 @@ def write_out_detailed_partitions(partitions, anchors, community_name, time, mat
             writer.writerow(partition_line)
 
 # ----------------------- Distribution code ---------------
+#This section of code is not up to date or in active use
+
 def get_distribution_buckets_from_matrix(matrix):
     #ignore edges from word to itself again
     lt_rows, lt_cols = np.tril_indices_from(matrix, k=-1)
@@ -574,8 +567,8 @@ def main():
     print("Got top "+ str(k) +" edges")
 
     #determine communities
-    threshold = float(config['leiden']['threshold'])
-    resolution = float(config['leiden']['resolution'])
+    threshold = float(config['partition']['threshold'])
+    resolution = float(config['partition']['resolution'])
 
     comm = communities_from_noisy_matrix_networkx(noisy_matrix, threshold = threshold)
     print("Determined partitions")
