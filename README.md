@@ -10,7 +10,7 @@ was developed iteratively and needs work to make it more organized, readable, an
 
 ## Config
 
-The config.ini file controls the internal variables for the script to run. Input and output files can be whatever you'd like, as long as the inputs conform to the output from the [wordchipper] (https://chattersum.com/wordchipper/). The dataset_times variable takes the form of a json dictionary whose keys are communities and whose values are a timeframe string.
+The config.ini file controls the internal variables for the script to run. Input and output files can be whatever you'd like, as long as the inputs conform to the output from the [wordchipper](https://chattersum.com/wordchipper/). The dataset_times variable takes the form of a json dictionary whose keys are communities and whose values are a timeframe string.
 
 The shared_partition_fname variable appends community data to a file intended to be shared across runs, for ease of comparitive analysis. This was not intended as a long-term solution. 
 
