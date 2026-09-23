@@ -4,13 +4,20 @@ import sys
 import numpy as np
 import pickle
 import networkx as nx 
+# from networkx.algorithms import girvan_newman, modularity
 import igraph as ig
 import leidenalg as la
 from collections import Counter
 import matplotlib.pyplot as plt
 from pyvis.network import Network 
 import matplotlib.colors as mcolors 
+import configparser
+import string
+import json
+from pathlib import Path
 
+import nltk
+from nltk.corpus import stopwords
 
 
 # This script is intended to be a proof-of-concept for differentially private
@@ -36,6 +43,18 @@ def parse_tsv(filename):
             data.append(row)
     return data
 
+def remove_stop_words(anchor_words_dict):
+    #convert anchors to set
+    anchor_list = set(anchor_words_dict)
+
+    #download stop words
+    nltk.download('stopwords')
+    stop_words = set(stopwords.words('english'))
+
+    #list comprehension
+    filtered_anchors = [word for word in anchor_list if word not in stop_words]
+    return filtered_anchors
+
 def get_anchor_words(anchor_fname):
     try:
         parsed_data = parse_tsv(anchor_fname)
@@ -50,8 +69,14 @@ def get_anchor_words(anchor_fname):
         index = int(row[0])
         word = row[2]
         anchor_words[word] = index
-    
-    return anchor_words
+
+    #TODO test!
+    filtered_anchors = remove_stop_words(anchor_words)
+    # print(f"FILTERED ANCHOR LIST: {filtered_anchors}")
+    filtered_anchor_words = {anchor: idx for anchor, idx in anchor_words.items() if anchor in filtered_anchors }
+    # print(f"FILTERED ANCHOR DICT: {filtered_anchor_words}")
+
+    return filtered_anchor_words
 
 #if we don't care about the indices in the anchor words file
 def get_anchor_words_index_ignored(anchor_fname):
@@ -69,6 +94,15 @@ def get_anchor_words_index_ignored(anchor_fname):
         word = row[2]
         anchor_words[word] = index
         index += 1
+
+    #TODO test!
+    filtered_anchors = remove_stop_words(anchor_words)
+    # print(f"FILTERED ANCHOR LIST: {filtered_anchors}")
+    filtered_anchor_words = {anchor: idx for anchor, idx in anchor_words.items() if anchor in filtered_anchors }
+    # print(f"FILTERED ANCHOR DICT: {filtered_anchor_words}")
+
+    print(f"NUM ANCHORS TOTAL: {len(anchor_words)}")
+    print(f"NUM FILTERED ANCHORS TOTAL: {len(filtered_anchors)}")
     
     return anchor_words
 
@@ -134,7 +168,8 @@ def posts_to_matrices_adjacent(posts, anchors):
     for post in posts:
         post_user = post[0]
         post_text = post[1]
-        post_words = post_text.split()
+        # post_words = post_text.split()
+        post_words = [word.lower().strip(string.punctuation) for word in post_text.split()]
         num_words = len(post_words)
         num_anchors = len(anchors)
         matrix = np.zeros((num_anchors, num_anchors))
@@ -156,6 +191,68 @@ def posts_to_matrices_adjacent(posts, anchors):
             matrix[idx, next_idx] += 1
             matrix[next_idx, idx] += 1 #symmetrical for completeness
         matrices.append((post_user, matrix))
+    return matrices
+
+def full_post_to_matrix(post, anchors):
+    post_user = post[0]
+    post_text = post[1]
+    post_words = [word.lower().strip(string.punctuation) for word in post_text.split()]
+    num_anchors = len(anchors)
+
+    anchor_counts = [0] * num_anchors
+    for word in post_words:
+        anchor_idx = anchors.get(word)
+        if anchor_idx == None:
+            #not an anchor
+            continue
+        anchor_counts[anchor_idx] += 1
+    
+    matrix = np.zeros((num_anchors, num_anchors))
+    for i in range(num_anchors):
+        for j in range(num_anchors):
+            if(i == j):
+                #no point in crossing a word with itself here
+                continue
+            matrix[i, j] = anchor_counts[i] * anchor_counts[j]
+    return (post_user, matrix)
+
+def posts_to_matrices_full_post(posts, anchors):
+    matrices = []
+    for post in posts:
+        post_user, matrix = full_post_to_matrix(post, anchors)
+        matrices.append((post_user, matrix))
+    return matrices
+
+def posts_to_matrices_param(posts, anchors, window_size):
+    if window_size == -1:
+        return posts_to_matrices_full_post(posts, anchors)
+    matrices = []
+    for post in posts:
+        post_user = post[0]
+        post_text = post[1]
+        post_words = [word.lower().strip(string.punctuation) for word in post_text.split()]
+        num_words = len(post_words)
+        num_anchors = len(anchors)
+        matrix = np.zeros((num_anchors, num_anchors))
+
+        #iterate through window    
+        for i in range(num_words - 1):
+            word = post_words[i]
+            idx = anchors.get(word)
+            if idx is None:
+                #not an anchor
+                continue
+            #iterate through full window or until end of the post
+            for j in range(i+1, min(i+window_size+1, num_words)): 
+                next_word = post_words[j]
+                next_idx = anchors.get(next_word)
+                if next_idx is None or next_idx == idx:
+                    #not an anchor or same word
+                    continue
+                #else both anchors, increment the matrix
+                matrix[idx, next_idx] += 1
+                matrix[next_idx, idx] += 1 #symmetrical for completeness
+            matrices.append((post_user, matrix))
     return matrices
 
 
@@ -268,7 +365,7 @@ def communities_from_noisy_matrix(m, resolution = 1.0, threshold = 0.0):
     g = ig.Graph.Weighted_Adjacency(working_matrix.T, mode="upper", attr="weight")
     g.es.select(weight=0).delete()
 
-    if threshold == 1.0:
+    if resolution == 1.0: #should this be resolution?
         partition = la.find_partition(g,
                                       la.ModularityVertexPartition,
                                       weights='weight',
@@ -286,6 +383,73 @@ def communities_from_noisy_matrix(m, resolution = 1.0, threshold = 0.0):
     communities = [list(comm) for comm in partition]
     return communities
 
+
+def lowest_weight_edge(g):
+    return min(g.edges(data="weight"), key=lambda e: e[2])[:2]
+
+def most_central_edge(g):
+    #Invert edges bc NX treats them as distance not similarity
+    inverted_weights = {
+        (u,v): 1.0/w if w > 0 else float("inf")
+        for u, v, w in g.edges(data="weight")
+    }
+    centrality = nx.algorithms.centrality.edge_betweenness_centrality(g, weight="weight")
+    return max(centrality, key=centrality.get)
+
+# extract communities from the private matrix, output is list of lists of indices,
+# where communities are the sublists
+def communities_from_noisy_matrix_networkx(m, resolution = 1.0, threshold = 0.0):
+    #to match the get_top_k weights, we want to examine the lower half of the matrix (aka the upper half of the transposition)
+    working_matrix = np.array(m, dtype=np.float64, copy=True)
+
+
+    # 0 out diagonal and any edges below the threshold
+    np.fill_diagonal(working_matrix, 0)
+    working_matrix = np.where(working_matrix < threshold, 0, working_matrix)
+
+    n = working_matrix.shape[0]
+    g = nx.Graph()
+    g.add_nodes_from(range(n))
+
+    #lower triangle, no diagonal
+    rows, cols = np.tril_indices(n, k=-1)
+    weights = working_matrix[rows, cols]
+    mask = weights > 0
+    g.add_weighted_edges_from(
+        zip(rows[mask].tolist(), cols[mask].tolist(), weights[mask].tolist())
+    )
+
+    if g.number_of_edges == 0:
+        # thresholding too strong for any edges
+        return [[node] for node in g.nodes()]
+    
+    #TODO need another param?
+    partition_generator = nx.community.girvan_newman(g, most_valuable_edge=lowest_weight_edge)
+    # partition_generator = nx.community.girvan_newman(g, most_valuable_edge=most_central_edge)
+
+    best_partition = None
+    #TODO for now, modularity. can this change?
+    best_quality = float("-inf")
+
+    #TODO parameterize this?
+    # limit = 15
+    limit = n
+    for i, partition in enumerate(partition_generator):
+        communities = [list(c) for c in partition]
+        # q_performance, q_coverage = partition_quality(g, communities) #returns a 2-tuple
+        q = nx.algorithms.community.modularity(g, communities, weight = "weight")
+        if q > best_quality:
+            best_quality = q
+            best_partition = communities
+        # if q_performance > best_quality:
+        #     best_quality = q_performance
+        #     best_partition = communities
+        if len(communities) >= limit:
+            break
+
+    print(f"Partition quality: {best_quality}")
+    return best_partition
+
 # transform list of community sublists into same format but strings instead
 # of indices
 def match_anchors_to_communities(anchors, comm):
@@ -301,6 +465,64 @@ def write_out_partitions(comms, fname):
         for i, comm in enumerate(comms):
             for word in comm:
                 writer.writerow((word, i))
+
+def format_partition(time, community_name, partition, anchor_dict, m):
+# [start date - end date] {community] [story hook] [normalized edge weight (so if there's three words and three edges, sum them up and then divide the total edge weight by 3)]
+    #date TBD
+    #comm_name = from param
+    #story_hook = join partition members with ","
+    story_hook = ",".join(partition)
+    # print(f"STORY HOOK: {story_hook}")
+    
+    #get list of indices from anchor_dict
+    indices = [anchor_dict[key] for key in partition]
+    # print(f"INDICES: {indices}")
+
+    # make all possible pairs (i,j) where i > j (stick to lower triangle)
+            # make all possible pairs
+            # [(max(r,c), min(r,c) for r,c in indices if r != c]
+            # append edge weight to list of edges
+            # average edge weight
+
+    # r > c keeps us in the lower triangle of the matrix
+    pairs = [(r,c) for r in indices for c in indices if r > c]
+    # print(f"PAIRS {pairs}")
+    edges = []
+    for pair in pairs:
+        edges.append(m[pair[0], pair[1]])
+    # print(f"EDGES: {edges}")
+    avg_edge_weight = np.round(np.mean(edges), 3)
+    # print(f"AVG EDGE: {avg_edge_weight}")
+        
+
+    #join comm_name, story_hook, avg_edge_weight and combine
+    output_line = [time, community_name, story_hook, str(avg_edge_weight)]
+    return output_line
+
+
+def write_out_detailed_partitions(partitions, anchors, community_name, time, matrix,fname):
+    # print(f"FNAME: {fname}")
+    # print(f"COMMS: {comms}")
+    # print(f"ANCHORS: {anchors}")
+
+    file_path = Path(fname)
+    file_exists = file_path.is_file()
+   
+
+    #TODO this is not a great way to combine the data across runs
+    with open(fname, 'a', newline='') as out:
+        writer = csv.writer(out, delimiter='\t')
+        file_path = Path(fname)
+        if not file_exists:
+            headers = ['Time','Community', 'Story hook', 'Avg edge weight']
+            writer.writerow(headers)
+        for i, part in enumerate(partitions):
+            if len(part) < 2:
+                # print(f"Singleton partition: {comm}")
+                continue
+            partition_line = format_partition(time, community_name, part, anchors, matrix) 
+            # print(partition_line)
+            writer.writerow(partition_line)
 
 # ----------------------- Distribution code ---------------
 def get_distribution_buckets_from_matrix(matrix):
@@ -425,7 +647,7 @@ def generate_visualization_partitions(comm, anchor_list, adj_matrix, threshold =
 
 
 
-def main():
+def main_old():
     parser = argparse.ArgumentParser(description='small script to create co-occurence matrices per user given proper datasets')
     parser.add_argument('anchor', type=str, help='The file name the anchor words')
     parser.add_argument('posts', type=str, help="The file name of the posts")
@@ -529,6 +751,114 @@ def main():
 
 
 
+def main():
+    #read config
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+    
+
+    #get anchor words from input file
+    anchor_input_fname = config['input']['anchor_input']
+    anchor_words = get_anchor_words_index_ignored(anchor_input_fname) #TODO rename?
+    print("Read input anchor words")
+
+    #read posts from input file
+    posts_input_fname = config['input']['post_input']
+    uncounted_posts = get_posts(posts_input_fname)
+    print("Read input posts")
+
+    #convert posts to co-occ matrices
+    # post_matrices = posts_to_matrices_adjacent(uncounted_posts, anchor_words)
+    window_size = int(config['statistics']['cooccurrence_window'])
+    post_matrices = posts_to_matrices_param(uncounted_posts, anchor_words, window_size)
+    print("Generated adjacency co-occurence matrices for posts")
+    # index = anchor_words['vaccine']
+    # pm0 = post_matrices[0][1]
+    #iterate thru each post matrix, 
+    # vax_occurrences = 0
+    # for pm in post_matrices:
+    #     user = pm[0]
+    #     matrix = pm[1]
+    #     row = matrix[index]
+    #     col = matrix[:, index]
+    #     if np.any(row) or np.any(col):
+    #         vax_occurrences += 1
+    #         print(f"co-occ in user {user}")
+        # if np.any(row):
+        #     match_ind = np.argmax(row)
+        #     print(f"found vaccine w/ index {match_ind} in {user} row: {row}")
+        # if np.any(col):
+        #     match_ind = np.argmax(col)
+        #     print(f"found vaccine w/ index {match_ind} in {user} col: {col}")
+    # print(f"Found {vax_occurrences} co-occurrences of vaccine")
+    #group post-level matrices
+    user_matrices = group_post_matrices(post_matrices)
+    print("Determined per-user co-occurrence matrices")
+
+    #scale matrices
+    target_sens = float(config['laplace']['target_sensitivity'])
+    for user, matrix in user_matrices.items():
+        new_matrix = scale_matrix(matrix, target_sens)
+        user_matrices[user] = new_matrix
+    print("Scaled user matrices to sensitivity "+str(target_sens))
+
+    #aggregate matrices
+    complete_matrix = sum_user_matrices(user_matrices)
+    print("Aggregated user matrices")
+    # print(f"Complete for vax: {complete_matrix[index]}, with {np.argmax(complete_matrix[index])}")
+
+    #add noise
+    epsilon = float(config['laplace']['epsilon'])
+    scale_factor = target_sens/epsilon
+    print("eps is "+str(epsilon))
+    print("scale factor is "+str(scale_factor))
+    noisy_matrix = add_noise(complete_matrix, scale_factor)
+    print("Added noise to matrix")
+    # print(f"noisy for vax with {np.argmax(noisy_matrix[index])}: {noisy_matrix[index, np.argmax(noisy_matrix[index])]}, and {noisy_matrix[79, index]}")
+
+    #get top k
+    k = int(config['statistics']['top_k'])
+    top_edges = get_top_k(noisy_matrix, k, anchor_words)
+    print("Got top "+ str(k) +" edges")
+    # print(top_edges)
+    #TODO get top k' edges with vaccine in them 
+
+    #determine communities
+    threshold = float(config['leiden']['threshold'])
+    resolution = float(config['leiden']['resolution'])
+    #TODO n_iters should be parameterized?
+    # comm = communities_from_noisy_matrix(noisy_matrix, resolution=resolution, threshold = threshold)
+    comm = communities_from_noisy_matrix_networkx(noisy_matrix, resolution=resolution, threshold = threshold)
+    print("Determined partitions")
+
+    #match anchors to communities
+    comm_anchors = match_anchors_to_communities(anchor_words, comm)
+    print("Matched words to partitions")
+
+    #write top k
+    top_k_fname = config['output']['top_k_output']
+    write_output(top_edges, top_k_fname)
+    print(f"Wrote to file {top_k_fname}")
+
+    #write communities
+    comm_fname = config['output']['partition_out']
+    write_out_partitions(comm_anchors, comm_fname)
+    print(f"Wrote partitions to file {comm_fname}")
+
+    # partitions, anchors, community_name, matrix,fname
+    community_name = config['output']['community_name']
+    shared_partition_fname = config['output']['shared_partition_fname']
+    time_lookup_fname = config['input']['dataset_times']
+    with open(time_lookup_fname, 'r') as f:
+        time_lookup = json.load(f)
+    time = time_lookup.get(community_name, None)
+    if time is None:
+        print("COULDN'T FIND COMMUNITY IN TIME LOOKUP")
+        return
+    write_out_detailed_partitions(comm_anchors, anchor_words, community_name, time, noisy_matrix, shared_partition_fname)
+    print(f"Added detailed partitions to shared file {shared_partition_fname}")
+
+    #generate comm visualizations
 
 
     
