@@ -1,14 +1,12 @@
 # DP-WAG
 
-Given list of anchor words, and social media post data, generate differentially private
-word association graph and extract/output top k edges, detected communities, distribution of weights, visualizations.
+Given list of anchor words, and social media post data, generate differentially private word association graph and extract/output top k edges, detected communities, distribution of weights, visualizations.
 
 ## Description
 
 This script is intended to be a proof-of-concept for differentially private
 word association graph generation and community detection. This script 
-was developed iteratively and needs work to make it more organized, readable,
-and usable.
+was developed iteratively and needs work to make it more organized, readable, and usable.
 
 There are two modes of co-occurrence used to generate these matrices: full-post and adjacency. Full-post counts co-occurrence when any two anchor words appear in the same post at all. Adjacency requires them to be next to one another. 
 

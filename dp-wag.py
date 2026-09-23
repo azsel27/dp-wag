@@ -4,7 +4,6 @@ import sys
 import numpy as np
 import pickle
 import networkx as nx 
-# from networkx.algorithms import girvan_newman, modularity
 import igraph as ig
 import leidenalg as la
 from collections import Counter
@@ -21,9 +20,7 @@ from nltk.corpus import stopwords
 
 
 # This script is intended to be a proof-of-concept for differentially private
-# word association graph generation and community detection. This script 
-# was developed iteratively and needs work to made it more organized, readable,
-# and usable. 
+# word association graph generation and community detection. 
 
 class Post:
     def __init__(self, user, text, counts):
@@ -51,35 +48,12 @@ def remove_stop_words(anchor_words_dict):
     nltk.download('stopwords')
     stop_words = set(stopwords.words('english'))
 
-    #list comprehension
+    #list comprehension to filter
     filtered_anchors = [word for word in anchor_list if word not in stop_words]
     return filtered_anchors
 
+
 def get_anchor_words(anchor_fname):
-    try:
-        parsed_data = parse_tsv(anchor_fname)
-    except FileNotFoundError:
-        print(f"The file '{anchor_fname}' was not found.")
-        sys.exit()
-    
-    #maps word key to word_index value
-    anchor_words = {}
-    #skip first row because it is labels
-    for row in parsed_data[1:]:
-        index = int(row[0])
-        word = row[2]
-        anchor_words[word] = index
-
-    #TODO test!
-    filtered_anchors = remove_stop_words(anchor_words)
-    # print(f"FILTERED ANCHOR LIST: {filtered_anchors}")
-    filtered_anchor_words = {anchor: idx for anchor, idx in anchor_words.items() if anchor in filtered_anchors }
-    # print(f"FILTERED ANCHOR DICT: {filtered_anchor_words}")
-
-    return filtered_anchor_words
-
-#if we don't care about the indices in the anchor words file
-def get_anchor_words_index_ignored(anchor_fname):
     try:
         parsed_data = parse_tsv(anchor_fname)
     except FileNotFoundError:
@@ -95,16 +69,13 @@ def get_anchor_words_index_ignored(anchor_fname):
         anchor_words[word] = index
         index += 1
 
-    #TODO test!
     filtered_anchors = remove_stop_words(anchor_words)
-    # print(f"FILTERED ANCHOR LIST: {filtered_anchors}")
-    filtered_anchor_words = {anchor: idx for anchor, idx in anchor_words.items() if anchor in filtered_anchors }
-    # print(f"FILTERED ANCHOR DICT: {filtered_anchor_words}")
+    filtered_anchor_words = {filtered_anchors[idx]: idx for idx in range(len(filtered_anchors))}
 
     print(f"NUM ANCHORS TOTAL: {len(anchor_words)}")
-    print(f"NUM FILTERED ANCHORS TOTAL: {len(filtered_anchors)}")
+    print(f"NUM FILTERED ANCHORS TOTAL: {len(filtered_anchor_words)}")
     
-    return anchor_words
+    return filtered_anchor_words
 
 #parse posts into list of tuples [(user hash, post text), ...]
 def get_posts(post_fname):
@@ -122,76 +93,6 @@ def get_posts(post_fname):
     
     return posts
 
-# count occurences of anchor words in posts, used for full-post co-occurrence
-# rather than adjacency co-occurrence
-def count_post(post, anchors):
-    user = post[0]
-    text = post[1]
-    counts = [0] * len(anchors)
-    #for each anchor, count how often it appears in the text
-    for anchor, anchor_idx in anchors.items():
-        text_list = text.split()
-        count = text_list.count(anchor)
-        counts[anchor_idx] = count
-    return Post(user, text, counts)
-
-
-def count_posts(posts, anchors):
-    rtn = []
-    for post in posts:
-        rtn.append(count_post(post, anchors))
-
-    return rtn
-
-# in the full post co-occurrence flow, convert list of Post objects 
-# into list of tuples (user id, l x l matrices where l = len(anchors)) 
-def counts_to_matrices(posts):
-    matrices = []
-    for post in posts:
-        num_anchors = len(post.counts)
-        matrix = np.zeros((num_anchors, num_anchors))
-        for i in range(num_anchors):
-            for j in range(num_anchors):
-                if(i == j):
-                    #no point in crossing a word with itself here
-                    continue
-                matrix[i, j] = post.counts[i] * post.counts[j]
-        matrices.append((post.user, matrix))
-    return matrices
-
-# posts = [(user, text),...]
-# anchors = ['anchor':anchor_idx]
-# in the adjacency co-occurrence flow, create a matrix for occurrences of
-# two anchor words adjacent in a given post
-def posts_to_matrices_adjacent(posts, anchors):
-    matrices = []
-    for post in posts:
-        post_user = post[0]
-        post_text = post[1]
-        # post_words = post_text.split()
-        post_words = [word.lower().strip(string.punctuation) for word in post_text.split()]
-        num_words = len(post_words)
-        num_anchors = len(anchors)
-        matrix = np.zeros((num_anchors, num_anchors))
-        for i in range(num_words):
-            if i + 1 == num_words:
-                #last index
-                continue
-            word = post_words[i]
-            next_word = post_words[i+1] #only check forward to not double count
-            idx = anchors.get(word)
-            if idx == None:
-                #not an anchor
-                continue
-            next_idx = anchors.get(next_word)
-            if next_idx == None:
-                #not an anchor
-                continue
-            #else both anchors, increment the matrix
-            matrix[idx, next_idx] += 1
-            matrix[next_idx, idx] += 1 #symmetrical for completeness
-        matrices.append((post_user, matrix))
-    return matrices
 
 def full_post_to_matrix(post, anchors):
     post_user = post[0]
@@ -353,7 +254,7 @@ def write_output(top_k, fname):
 
 # extract communities from the private matrix, output is list of lists of indices,
 # where communities are the sublists
-def communities_from_noisy_matrix(m, resolution = 1.0, threshold = 0.0):
+def communities_from_noisy_matrix_leidenalg(m, resolution = 1.0, threshold = 0.0):
     #to match the get_top_k weights, we want to examine the lower half of the matrix (aka the upper half of the transposition)
     working_matrix = np.array(m, dtype=np.float64, copy=True)
 
@@ -396,9 +297,8 @@ def most_central_edge(g):
     centrality = nx.algorithms.centrality.edge_betweenness_centrality(g, weight="weight")
     return max(centrality, key=centrality.get)
 
-# extract communities from the private matrix, output is list of lists of indices,
-# where communities are the sublists
-def communities_from_noisy_matrix_networkx(m, resolution = 1.0, threshold = 0.0):
+# networkx implementation, currently using Girvan-Newman
+def communities_from_noisy_matrix_networkx(m, threshold = 0.0):
     #to match the get_top_k weights, we want to examine the lower half of the matrix (aka the upper half of the transposition)
     working_matrix = np.array(m, dtype=np.float64, copy=True)
 
@@ -423,16 +323,13 @@ def communities_from_noisy_matrix_networkx(m, resolution = 1.0, threshold = 0.0)
         # thresholding too strong for any edges
         return [[node] for node in g.nodes()]
     
-    #TODO need another param?
     partition_generator = nx.community.girvan_newman(g, most_valuable_edge=lowest_weight_edge)
     # partition_generator = nx.community.girvan_newman(g, most_valuable_edge=most_central_edge)
 
     best_partition = None
-    #TODO for now, modularity. can this change?
+    #TODO for now, modularity. should try performance and coverage
     best_quality = float("-inf")
 
-    #TODO parameterize this?
-    # limit = 15
     limit = n
     for i, partition in enumerate(partition_generator):
         communities = [list(c) for c in partition]
@@ -467,32 +364,19 @@ def write_out_partitions(comms, fname):
                 writer.writerow((word, i))
 
 def format_partition(time, community_name, partition, anchor_dict, m):
-# [start date - end date] {community] [story hook] [normalized edge weight (so if there's three words and three edges, sum them up and then divide the total edge weight by 3)]
-    #date TBD
-    #comm_name = from param
-    #story_hook = join partition members with ","
+    # [date range] [community] [story hook] [normalized edge weight]
+
     story_hook = ",".join(partition)
-    # print(f"STORY HOOK: {story_hook}")
     
     #get list of indices from anchor_dict
     indices = [anchor_dict[key] for key in partition]
-    # print(f"INDICES: {indices}")
-
-    # make all possible pairs (i,j) where i > j (stick to lower triangle)
-            # make all possible pairs
-            # [(max(r,c), min(r,c) for r,c in indices if r != c]
-            # append edge weight to list of edges
-            # average edge weight
 
     # r > c keeps us in the lower triangle of the matrix
     pairs = [(r,c) for r in indices for c in indices if r > c]
-    # print(f"PAIRS {pairs}")
     edges = []
     for pair in pairs:
         edges.append(m[pair[0], pair[1]])
-    # print(f"EDGES: {edges}")
     avg_edge_weight = np.round(np.mean(edges), 3)
-    # print(f"AVG EDGE: {avg_edge_weight}")
         
 
     #join comm_name, story_hook, avg_edge_weight and combine
@@ -501,10 +385,6 @@ def format_partition(time, community_name, partition, anchor_dict, m):
 
 
 def write_out_detailed_partitions(partitions, anchors, community_name, time, matrix,fname):
-    # print(f"FNAME: {fname}")
-    # print(f"COMMS: {comms}")
-    # print(f"ANCHORS: {anchors}")
-
     file_path = Path(fname)
     file_exists = file_path.is_file()
    
@@ -518,10 +398,8 @@ def write_out_detailed_partitions(partitions, anchors, community_name, time, mat
             writer.writerow(headers)
         for i, part in enumerate(partitions):
             if len(part) < 2:
-                # print(f"Singleton partition: {comm}")
                 continue
             partition_line = format_partition(time, community_name, part, anchors, matrix) 
-            # print(partition_line)
             writer.writerow(partition_line)
 
 # ----------------------- Distribution code ---------------
@@ -545,6 +423,7 @@ def get_bar_graph_from_counts(counts):
 
 
 # ----------------------Visualization code-------------------
+#This section of code is not up to date or in active use
 
 # counts the number of times a node crosses into other communities  
 def count_comm_crossings(comm_list, adj_matrix):
@@ -643,124 +522,16 @@ def generate_visualization_partitions(comm, anchor_list, adj_matrix, threshold =
 
 
 
-    
-
-
-
-def main_old():
-    parser = argparse.ArgumentParser(description='small script to create co-occurence matrices per user given proper datasets')
-    parser.add_argument('anchor', type=str, help='The file name the anchor words')
-    parser.add_argument('posts', type=str, help="The file name of the posts")
-    parser.add_argument('--out_matrix', type=str, help="The name of the output file of user matrices")
-    parser.add_argument('--in_matrix', type=str, help="Filename of serialized user matrices, to avoid recalculation")
-    parser.add_argument('--out', type=str, help="The name of the output file of the top k edges and their values")
-    parser.add_argument('--ignore_indices', action="store_true", help="This flag will make the program ignore the indices in the anchor words file")
-    parser.add_argument('--out_partition', type=str, help="Filename to output communities list")
-    parser.add_argument('--partition_threshold', type=str, help='Optional threshold for values that should not be counted towards communities')
-    parser.add_argument('--adjacency', action="store_true", help="Count adjacency co-occurrence rather than per-post")
-
-    args = parser.parse_args()
-    #key anchor word, value index
-    if args.ignore_indices:
-        anchor_words = get_anchor_words_index_ignored(args.anchor)
-    else:
-        anchor_words = get_anchor_words(args.anchor)
-    print("Got anchor words")
-
-    if args.in_matrix:
-        # skip matrix counting, deserialize instead
-        with open(args.in_matrix, 'rb') as f:
-            user_matrices = pickle.load(f)
-        print("Loaded user matrices from file")
-
-    else:
-        #key user hash, value post text
-        uncounted_posts = get_posts(args.posts)
-        print("Got post data")
-
-        if(args.adjacency):
-            # adjacency flow rather than per-post 
-            post_matrices = posts_to_matrices_adjacent(uncounted_posts, anchor_words)
-            print("Generated adjacency co-occurence matrices for posts")
-        else:
-            #returns list of Post objects
-            counted_posts = count_posts(uncounted_posts, anchor_words)
-            print("Counted anchor words in posts")
-
-            #each item in this list is (user hash, co-occurrence matrix for the post)
-            post_matrices = counts_to_matrices(counted_posts)
-            print("Converted counts into per-post co-occurrence matrices")
-
-        #hashmap where key= user hash, value = post matrix
-        user_matrices = group_post_matrices(post_matrices)
-        print("Determined per-user co-occurrence matrices")
-
-        if args.out_matrix:
-            serialize_user_matrices(user_matrices, args.out_matrix)
-            print("Serialized matrix")
-
-    #user matrices are either calculated or loaded in from file by this point
-
-    #scale matrices to sensitivity 10 (total sum 20)
-    for user, matrix in user_matrices.items():
-        new_matrix = scale_matrix(matrix, 10)
-        user_matrices[user] = new_matrix
-    print("Scaled user matrices to sensitivity 10")
-
-    complete_matrix = sum_user_matrices(user_matrices)
-    print("Combined user matrices")
-
-    #for now, sensitivity = 10, epsilon = 5, so scale = 2
-    noisy_matrix = add_noise(complete_matrix,2)
-    print("Added noise to combined matrix")
-
-    top_edges = get_top_k(noisy_matrix, 20, anchor_words)
-    print("Got top 20 edges")
-
-    if args.out:
-        fname = args.out
-    else: 
-        fname = "topk.csv"
-    write_output(top_edges, fname)
-    print("Wrote to file")
-
-    if args.partition_threshold:
-        comm = communities_from_noisy_matrix(noisy_matrix, resolution=1.0, threshold = float(args.partition_threshold))
-    else:
-        comm = communities_from_noisy_matrix(noisy_matrix, resolution=1.0)
-    print("Determined partitions")
-    comm_anchors = match_anchors_to_communities(anchor_words, comm)
-    print("Matched words to partitions")
-    if args.out_partition:
-        comm_fname = args.out_partition
-    else:
-        comm_fname = "partitions.csv"
-    write_out_partitions(comm_anchors, comm_fname)
-    print("Wrote partitions to file")
-
-    # distribution generation
-    # counts = get_distribution_buckets_from_matrix(noisy_matrix)
-    # print(counts)
-    # get_bar_graph_from_counts(counts)
-
-    #visualization
-    if args.partition_threshold:
-        generate_visualization_partitions(comm, anchor_words, noisy_matrix, threshold = float(args.partition_threshold))
-    else:
-        generate_visualization_partitions(comm, anchor_words, noisy_matrix)
-
-
 
 def main():
     #read config
     config = configparser.ConfigParser()
     config.read('config.ini')
     
-
     #get anchor words from input file
     anchor_input_fname = config['input']['anchor_input']
-    anchor_words = get_anchor_words_index_ignored(anchor_input_fname) #TODO rename?
-    print("Read input anchor words")
+    anchor_words = get_anchor_words(anchor_input_fname)
+    print(f"Read input anchor words")
 
     #read posts from input file
     posts_input_fname = config['input']['post_input']
@@ -768,29 +539,12 @@ def main():
     print("Read input posts")
 
     #convert posts to co-occ matrices
-    # post_matrices = posts_to_matrices_adjacent(uncounted_posts, anchor_words)
     window_size = int(config['statistics']['cooccurrence_window'])
+
+    #window_size = -1 -> full post co-occurrence
     post_matrices = posts_to_matrices_param(uncounted_posts, anchor_words, window_size)
     print("Generated adjacency co-occurence matrices for posts")
-    # index = anchor_words['vaccine']
-    # pm0 = post_matrices[0][1]
-    #iterate thru each post matrix, 
-    # vax_occurrences = 0
-    # for pm in post_matrices:
-    #     user = pm[0]
-    #     matrix = pm[1]
-    #     row = matrix[index]
-    #     col = matrix[:, index]
-    #     if np.any(row) or np.any(col):
-    #         vax_occurrences += 1
-    #         print(f"co-occ in user {user}")
-        # if np.any(row):
-        #     match_ind = np.argmax(row)
-        #     print(f"found vaccine w/ index {match_ind} in {user} row: {row}")
-        # if np.any(col):
-        #     match_ind = np.argmax(col)
-        #     print(f"found vaccine w/ index {match_ind} in {user} col: {col}")
-    # print(f"Found {vax_occurrences} co-occurrences of vaccine")
+    
     #group post-level matrices
     user_matrices = group_post_matrices(post_matrices)
     print("Determined per-user co-occurrence matrices")
@@ -805,7 +559,6 @@ def main():
     #aggregate matrices
     complete_matrix = sum_user_matrices(user_matrices)
     print("Aggregated user matrices")
-    # print(f"Complete for vax: {complete_matrix[index]}, with {np.argmax(complete_matrix[index])}")
 
     #add noise
     epsilon = float(config['laplace']['epsilon'])
@@ -814,21 +567,17 @@ def main():
     print("scale factor is "+str(scale_factor))
     noisy_matrix = add_noise(complete_matrix, scale_factor)
     print("Added noise to matrix")
-    # print(f"noisy for vax with {np.argmax(noisy_matrix[index])}: {noisy_matrix[index, np.argmax(noisy_matrix[index])]}, and {noisy_matrix[79, index]}")
 
     #get top k
     k = int(config['statistics']['top_k'])
     top_edges = get_top_k(noisy_matrix, k, anchor_words)
     print("Got top "+ str(k) +" edges")
-    # print(top_edges)
-    #TODO get top k' edges with vaccine in them 
 
     #determine communities
     threshold = float(config['leiden']['threshold'])
     resolution = float(config['leiden']['resolution'])
-    #TODO n_iters should be parameterized?
-    # comm = communities_from_noisy_matrix(noisy_matrix, resolution=resolution, threshold = threshold)
-    comm = communities_from_noisy_matrix_networkx(noisy_matrix, resolution=resolution, threshold = threshold)
+
+    comm = communities_from_noisy_matrix_networkx(noisy_matrix, threshold = threshold)
     print("Determined partitions")
 
     #match anchors to communities
@@ -858,15 +607,10 @@ def main():
     write_out_detailed_partitions(comm_anchors, anchor_words, community_name, time, noisy_matrix, shared_partition_fname)
     print(f"Added detailed partitions to shared file {shared_partition_fname}")
 
-    #generate comm visualizations
-
 
     
 
     
-
-
-
 
 
 
