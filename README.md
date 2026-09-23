@@ -18,6 +18,14 @@ The threshold variable in the partition section is the minimum edge weight to be
 
 The cooccurrence_window variable in the statistics section determines how close anchor words must be in order to be counted. Setting this to -1 will make the full post the co-occurrence window. 
 
+## wordchipper-fixer.py
+
+This is a short script that transforms output from the wordchipper into a form that the script can use. Its configuration is dictated by the fixer_config.ini file.
+
+## cross-community-insights.py
+
+This is a short, very unrefined script designed to take in the shared partition file output from dp-wag.py and output the most common pairs of words in that dataset. Currently, its config is hard-coded into the script.
+
 ## Usage
 First, set any appropriate variables in the config.ini file. Then,
 
