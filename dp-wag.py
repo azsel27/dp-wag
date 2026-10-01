@@ -17,6 +17,15 @@ from pathlib import Path
 
 import nltk
 from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+
+# Download NLTK packages
+nltk.download('stopwords')  # used to remove stop-words
+nltk.download('punkt_tab')  # used for tokenization
+nltk.download('wordnet')  # used for lemmatization
+# nltk.download('averaged_perceptron_tagger')  # used for part-of-speech tagging to isolate only nouns (may not be necessary)
+lemmatizer = WordNetLemmatizer()
 
 
 # This script is intended to be a proof-of-concept for differentially private
@@ -31,17 +40,23 @@ def parse_tsv(filename):
             data.append(row)
     return data
 
-def remove_stop_words(anchor_words_dict):
-    #convert anchors to set
-    anchor_list = set(anchor_words_dict)
 
-    #download stop words
-    nltk.download('stopwords')
+def preprocess_anchors(anchor_words_dict):
+    # get stop words from NLTK
     stop_words = set(stopwords.words('english'))
-
-    #list comprehension to filter
-    filtered_anchors = [word for word in anchor_list if word not in stop_words]
-    return filtered_anchors
+    
+    # convert all to lowercase
+    anchors = [a.lower() for a in anchor_words_dict]
+    # lemmatize
+    anchors = [lemmatizer.lemmatize(a) for a in anchors]
+    # remove stop words
+    anchors = [a for a in anchors if a not in stop_words]
+    # deduplicate by converting to a set
+    anchors = list(set(anchors))
+    # sort to ensure a determinstic ordering
+    anchors.sort()
+    
+    return anchors
 
 
 def get_anchor_words(anchor_fname):
@@ -60,13 +75,16 @@ def get_anchor_words(anchor_fname):
         anchor_words[word] = index
         index += 1
 
-    filtered_anchors = remove_stop_words(anchor_words)
+    # convert to lowercase, remove stop words, lemmatize, deduplicate, and sort
+    filtered_anchors = preprocess_anchors(anchor_words)
+    # filtered_anchors = remove_stop_words(anchor_words)
     filtered_anchor_words = {filtered_anchors[idx]: idx for idx in range(len(filtered_anchors))}
 
     print(f"NUM ANCHORS TOTAL: {len(anchor_words)}")
     print(f"NUM FILTERED ANCHORS TOTAL: {len(filtered_anchor_words)}")
     
     return filtered_anchor_words
+
 
 #parse posts into list of tuples [(user hash, post text), ...]
 def get_posts(post_fname):
@@ -122,7 +140,7 @@ def posts_to_matrices_param(posts, anchors, window_size):
     for post in posts:
         post_user = post[0]
         post_text = post[1]
-        post_words = [word.lower().strip(string.punctuation) for word in post_text.split()]
+        post_words = [lemmatizer.lemmatize(word.lower().strip(string.punctuation)) for word in post_text.split()]
         num_words = len(post_words)
         num_anchors = len(anchors)
         matrix = np.zeros((num_anchors, num_anchors))
