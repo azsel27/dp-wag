@@ -173,13 +173,11 @@ def serialize_user_matrices(data, fname):
 # currently has slight inaccuracy on order of 10^-15 sometimes
 # note that full matrix is scaled by 2*target since the matrix double counts each edge
 # scales a matrix to a target value so that 
-# total sum of the matrix as an adjacency graph <= target
+# total sum of the matrix as an adjacency graph = 2*target or 0
 def scale_matrix(matrix, target):
     total_weight = matrix.sum()
     if total_weight == 0:
         #nothing to scale, avoid dividing by 0
-        return matrix
-    if total_weight < target:
         return matrix
 
     scaling_factor = (2*target) / total_weight
@@ -236,6 +234,7 @@ def get_top_k(matrix, k, anchor_words):
     
 # serialize top k edges 
 def write_output(top_k, fname):
+    Path(fname).parent.mkdir(parents=True, exist_ok=True)
     with open(fname, 'w', newline='') as out:
         writer = csv.writer(out)
         headers = ['Word1', 'Word2', 'Edge weight']
@@ -523,9 +522,15 @@ def generate_visualization_partitions(comm, anchor_list, adj_matrix, threshold =
 
 
 def main():
+    DEFAULT_CONFIG_PATH = Path(__file__).parent / "config.ini"
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config", type=Path, nargs='?', default=DEFAULT_CONFIG_PATH)
+    args = parser.parse_args()
+
     #read config
     config = configparser.ConfigParser()
-    config.read('config.ini')
+    config.read(args.config)
     
     #get anchor words from input file
     anchor_input_fname = config['input']['anchor_input']

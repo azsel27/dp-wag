@@ -1,5 +1,6 @@
 import configparser
 import pandas as pd
+from pathlib import Path
 import hashlib
 import csv
 
@@ -48,6 +49,7 @@ def process_misc_tabs(df):
     return anchor_words, posts
 
 def output_anchors(anchors, out_fname):
+    Path(out_fname).parent.mkdir(parents=True, exist_ok=True)
     with open(out_fname, 'w', newline='') as out:
         writer = csv.writer(out, delimiter="\t")
         headers = ['word_index', 'cluster_id', 'word']
@@ -60,6 +62,7 @@ def output_anchors(anchors, out_fname):
             i += 1
 
 def output_posts(posts, out_fname):
+    Path(out_fname).parent.mkdir(parents=True, exist_ok=True)
     with open(out_fname, 'w', newline='') as out:
         writer = csv.writer(out, delimiter="\t")
         for post_tup in posts:
