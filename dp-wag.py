@@ -14,6 +14,7 @@ import configparser
 import string
 import json
 from pathlib import Path
+import pandas as pd
 
 import nltk
 from nltk.corpus import stopwords
@@ -24,7 +25,6 @@ from nltk.stem import WordNetLemmatizer
 nltk.download('stopwords')  # used to remove stop-words
 nltk.download('punkt_tab')  # used for tokenization
 nltk.download('wordnet')  # used for lemmatization
-# nltk.download('averaged_perceptron_tagger')  # used for part-of-speech tagging to isolate only nouns (may not be necessary)
 lemmatizer = WordNetLemmatizer()
 
 
@@ -140,7 +140,8 @@ def posts_to_matrices_param(posts, anchors, window_size):
     for post in posts:
         post_user = post[0]
         post_text = post[1]
-        post_words = [lemmatizer.lemmatize(word.lower().strip(string.punctuation)) for word in post_text.split()]
+        post_words = [lemmatizer.lemmatize(t) for t in word_tokenize(post_text.lower()) if any(c.isalnum() for c in t)]
+        # post_words = [word.lower().strip(string.punctuation) for word in post_text.split()]  # pre-wordnet/lemmatization tokenization approach
         num_words = len(post_words)
         num_anchors = len(anchors)
         matrix = np.zeros((num_anchors, num_anchors))
@@ -416,6 +417,39 @@ def write_out_detailed_partitions(partitions, anchors, community_name, time, mat
             partition_line = format_partition(time, community_name, part, anchors, matrix) 
             writer.writerow(partition_line)
 
+
+def write_private_edges(noisy_matrix, comm, anchor_words, threshold, output_path):
+    # mask the upper-right co-occurrence matrix
+    rows, cols = np.tril_indices_from(noisy_matrix, k=-1)
+    # record pre-pruned and pre-clipped noisy edges
+    records = []
+    rev_anchor_words = get_reverse_anchor_words(anchor_words)
+    for r, c in zip(rows, cols):
+        weight = noisy_matrix[r, c].item()
+        if weight < threshold:
+            continue
+        records.append({
+            "src": rev_anchor_words[r.item()],
+            "dst": rev_anchor_words[c.item()],
+            "weight": noisy_matrix[r, c].item(),
+            "status": "CLIP",
+        })
+    edges_df = pd.DataFrame(data=records, columns=["src", "dst", "weight", "status"])
+    edges_df["status"] = pd.Categorical(edges_df["status"], categories=["KEEP", "CLIP"], ordered=True)
+    # update edges which have been kept from comm
+    word_to_cluster = {word: i for i, cluster in enumerate(comm) for word in cluster}
+    src_cluster = edges_df['src'].map(word_to_cluster)
+    dst_cluster = edges_df['dst'].map(word_to_cluster)
+    same_cluster = src_cluster.notna() & (src_cluster == dst_cluster)
+    edges_df.loc[same_cluster, 'status'] = "KEEP"
+    # sort by edge weight
+    edges_df = edges_df.sort_values(by=["status", "weight", "src", "dst"], ascending=[True, False, True, True])
+
+    # write to file
+    Path(output_path).resolve().parent.mkdir(parents=True, exist_ok=True)
+    edges_df.to_csv(output_path, index=False)
+
+
 # ----------------------- Distribution code ---------------
 #This section of code is not up to date or in active use
 
@@ -605,6 +639,12 @@ def main():
     #match anchors to communities
     comm_anchors = match_anchors_to_communities(anchor_words, comm)
     print("Matched words to partitions")
+
+    # write noisy edges (each edge has a status with ["KEEP", "CLIP"])
+    # note: "CLIP" = removed during community detected
+    private_edges_fname = config['output']['private_edges_fname']
+    write_private_edges(noisy_matrix, comm_anchors, anchor_words, threshold, private_edges_fname)
+    print(f"Wrote privatized edges to file: {private_edges_fname}")
 
     #write top k
     top_k_fname = config['output']['top_k_output']
